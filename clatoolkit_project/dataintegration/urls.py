@@ -23,4 +23,6 @@ urlpatterns = patterns(
     url(r'^process_trello/$', views.process_trello, name='processtrello'),
     url(r'^refreshtrello/$', views.refreshtrello, name='refreshtrello'),
     #url(r'^ytAuthCallback/(?P<course_id>\d+)/$', views.ytAuthCallback, name='ytAuthCallback'),
+    url(r'^wp_connect/authorize$', views.wp_authorize, name='wp_authorize'),
+    url(r'^wp_connect/$', views.wp_connect, name='wp_connect'),
 )
