@@ -457,3 +457,8 @@ def wp_connect(request):
 
 def wp_authorize(request):
     return WordPressPlugin().authorize(request)
+
+
+def wp_refresh(request):
+    unit = UnitOffering.objects.get(id=request.GET["unit"])
+    return HttpResponse(WordPressPlugin().perform_import(request, unit))

@@ -6,6 +6,7 @@ from requests_oauthlib import OAuth1, OAuth1Session
 from dataintegration.models import PlatformConfig
 from clatoolkit.models import UnitOffering, UnitOfferingMembership
 import requests
+import json
 import os
 
 
@@ -75,4 +76,14 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
         return HttpResponseRedirect("/")
 
     def perform_import(self, retrieval_param, unit):
-        pass
+        config = unit.platformconfig_set.get(platform=self.platform).config
+        oauth = OAuth1(client_key=self.client_key,
+                              client_secret=self.client_secret,
+                              resource_owner_key=config["access_token_key"],
+                              resource_owner_secret=config["access_token_secret"])
+        try:
+            r = requests.get("{}/wp-json/clatoolkit-wp/v1/posts".format(self.wp_root), auth=oauth)
+
+        except Exception as e:
+            return e
+        return r.text
