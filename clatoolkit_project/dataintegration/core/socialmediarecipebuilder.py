@@ -204,13 +204,7 @@ def insert_post(user, post_id, message, created_time, unit, platform, platform_u
     verb = 'created'
 
     if check_ifnotinlocallrs(unit, platform, post_id, user, verb):
-        stm = socialmedia_builder(verb=verb, platform=platform, account_name=get_smid(user, platform),
-                                  account_homepage=platform_url, object_type='Note', object_id=post_id, message=message,
-                                  timestamp=created_time, account_email=user.email, user_name=user.username, unit=unit,
-                                  tags=tags)
-        jsn = ast.literal_eval(stm.to_json())
-        stm_json = pretty_print_json(jsn)
-        lrs = LearningRecord(xapi=stm_json, unit=unit, verb=verb, platform=platform, user=user, platformid=post_id,
+        lrs = LearningRecord(xapi=None, unit=unit, verb=verb, platform=platform, user=user, platformid=post_id,
                              message=message, datetimestamp=created_time)
         lrs.save()
         for tag in tags:

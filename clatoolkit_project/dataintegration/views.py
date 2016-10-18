@@ -461,4 +461,5 @@ def wp_authorize(request):
 
 def wp_refresh(request):
     unit = UnitOffering.objects.get(id=request.GET["unit"])
-    return HttpResponse(WordPressPlugin().perform_import(request, unit))
+    WordPressPlugin().perform_import(request, unit)
+    return HttpResponse("Done")

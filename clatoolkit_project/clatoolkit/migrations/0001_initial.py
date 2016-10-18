@@ -180,6 +180,7 @@ class Migration(migrations.Migration):
                 ('blog_id', models.CharField(max_length=255, blank=True)),
                 ('github_account_name', models.CharField(max_length=255, blank=True)),
                 ('trello_account_name', models.CharField(max_length=255, blank=True)),
+                ('accounts', django_pgjson.fields.JsonBField(null=True)),
                 ('user', models.OneToOneField(to=settings.AUTH_USER_MODEL)),
             ],
         ),

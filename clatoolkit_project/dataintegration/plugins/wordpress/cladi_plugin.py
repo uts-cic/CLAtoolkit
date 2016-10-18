@@ -5,6 +5,8 @@ from dataintegration.core.plugins.base import DIBasePlugin, DIPluginDashboardMix
 from requests_oauthlib import OAuth1, OAuth1Session
 from dataintegration.models import PlatformConfig
 from clatoolkit.models import UnitOffering, UnitOfferingMembership
+from dataintegration.core.socialmediarecipebuilder import *
+from dataintegration.core.recipepermissions import *
 import requests
 import json
 import os
@@ -77,13 +79,50 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
 
     def perform_import(self, retrieval_param, unit):
         config = unit.platformconfig_set.get(platform=self.platform).config
-        oauth = OAuth1(client_key=self.client_key,
+        oauth = OAuth1Session(client_key=self.client_key,
                               client_secret=self.client_secret,
                               resource_owner_key=config["access_token_key"],
                               resource_owner_secret=config["access_token_secret"])
-        try:
-            r = requests.get("{}/wp-json/clatoolkit-wp/v1/posts".format(self.wp_root), auth=oauth)
 
-        except Exception as e:
-            return e
-        return r.text
+        next_page = "{}/wp-json/clatoolkit-wp/v1/posts".format(self.wp_root)
+
+        while next_page:
+            r = oauth.get(next_page)
+            result = r.json()
+
+            for blog in result["posts"]:
+                self.add_blog_posts(blog, unit)
+
+            if "next_page" in result:
+                next_page = result["next_page"]
+            else:
+                next_page = False
+
+    def add_blog_posts(self, blog, unit):
+
+        for post in blog["posts"]:
+
+            try:
+                user = UserProfile.from_platform_identifier(self.platform, post["author"]["email"]).user
+
+                insert_post(user=user, post_id=post["guid"], message=post["post_content"],
+                            created_time=post["post_date_gmt"], unit=unit, platform=self.platform, platform_url="")
+
+                if "comments" in post:
+                    for comment in post["comments"]:
+                        try:
+                            commenter = UserProfile.from_platform_identifier(self.platform,
+                                                                             comment["comment_author_email"]).user
+
+                            insert_comment(user=commenter, post_id=post["guid"], comment_id=comment["comment_guid"],
+                                           comment_message=comment["comment_content"],
+                                           comment_created_time=comment["comment_date_gmt"], unit=unit,
+                                           platform=self.platform, platform_url="", parent_user=user)
+
+                        except UserProfile.DoesNotExist:
+                            # Don't store the comment if the author doesn't exist
+                            pass
+
+            except UserProfile.DoesNotExist:
+                # Do nothing if the post author doesn't exist
+                pass

@@ -1,7 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
-from django_pgjson.fields import JsonField
-from django.core.exceptions import ObjectDoesNotExist
+from django_pgjson.fields import JsonField, JsonBField
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 import os
 
 class UserProfile(models.Model):
@@ -51,6 +51,27 @@ class UserProfile(models.Model):
 
     #Trello user ID
     trello_account_name = models.CharField(max_length=255, blank=True)
+
+    # JSON field to store plugin accounts in
+    accounts = JsonBField(null=True)
+
+    def add_platform_account(self, platform, identifier):
+        try:
+            up = self.from_platform_identifier(platform, identifier)
+            if up != self:
+                raise ValidationError("This account has already been registered by another user")
+
+        except self.DoesNotExist:
+            if platform not in self.accounts:
+                self.accounts[platform] = []
+            self.accounts[platform].append(identifier)
+
+            self.save()
+
+    @classmethod
+    def from_platform_identifier(cls, platform, identifier):
+        return cls.objects.get(accounts__jcontains={platform: [identifier]})
+
 
 class UserTrelloCourseBoardMap(models.Model):
     user = models.ForeignKey(User)
