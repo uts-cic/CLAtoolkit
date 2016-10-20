@@ -449,17 +449,3 @@ def assigngroups(request):
     assign_groups_class(course_code)
     html_response.write('Groups Assigned')
     return html_response
-
-
-def wp_connect(request):
-    return WordPressPlugin().start_authentication(request)
-
-
-def wp_authorize(request):
-    return WordPressPlugin().authorize(request)
-
-
-def wp_refresh(request):
-    unit = UnitOffering.objects.get(id=request.GET["unit"])
-    WordPressPlugin().perform_import(request, unit)
-    return HttpResponse("Done")

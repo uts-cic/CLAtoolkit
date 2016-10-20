@@ -1,15 +1,18 @@
-from django.http import HttpResponseRedirect, Http404
+from django.http import HttpResponse, HttpResponseRedirect, Http404
+from django.conf.urls import patterns, url
 from django.core.exceptions import PermissionDenied
+from django.core.urlresolvers import reverse
 from common.CLRecipe import CLRecipe
 from dataintegration.core.plugins.base import DIBasePlugin, DIPluginDashboardMixin
-from requests_oauthlib import OAuth1, OAuth1Session
+from requests_oauthlib import OAuth1Session
 from dataintegration.models import PlatformConfig
-from clatoolkit.models import UnitOffering, UnitOfferingMembership
 from dataintegration.core.socialmediarecipebuilder import *
 from dataintegration.core.recipepermissions import *
-import requests
-import json
+from dataintegration.core.plugins import registry
 import os
+
+# TODO - make sure user has auth to import
+# TODO - comment code
 
 
 class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
@@ -20,6 +23,28 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
 
     user_api_association_name = "WP username"
 
+    @staticmethod
+    def connect_view(request):
+        return WordPressPlugin().start_authentication(request)
+
+    @staticmethod
+    def authorize_view(request):
+        return WordPressPlugin().authorize(request)
+
+    @classmethod
+    def refresh_view(cls, request):
+        unit = UnitOffering.objects.get(id=request.GET["unit"])
+        cls().perform_import(request, unit)
+        return HttpResponse("Done")
+
+    @classmethod
+    def get_url_patterns(cls):
+        return [
+            url(r'^connect/$', cls.connect_view, name="{}-connect".format(CLRecipe.PLATFORM_WORDPRESS)),
+            url(r'^authorize/$', cls.authorize_view, name="{}-authorize".format(CLRecipe.PLATFORM_WORDPRESS)),
+            url(r'^refresh/$', cls.refresh_view, name="{}-refresh".format(CLRecipe.PLATFORM_WORDPRESS)),
+        ]
+
     def __init__(self):
         self.client_key = os.environ.get("WORDPRESS_KEY")
         self.client_secret = os.environ.get("WORDPRESS_SECRET")
@@ -28,7 +53,8 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
     def start_authentication(self, request):
         request_token_url = "{}/oauth1/request".format(self.wp_root)
         base_authorization_url = "{}/oauth1/authorize".format(self.wp_root)
-        callback_uri = "{}://{}{}authorize".format(request.scheme, request.get_host(), request.path)
+        callback_path = reverse("{}-authorize".format(self.platform))
+        callback_uri = "{}://{}{}".format(request.scheme, request.get_host(), callback_path)
 
         oauth = OAuth1Session(self.client_key, self.client_secret, callback_uri)
         fetch_response = oauth.fetch_request_token(request_token_url)
@@ -126,3 +152,5 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
             except UserProfile.DoesNotExist:
                 # Do nothing if the post author doesn't exist
                 pass
+
+registry.register(WordPressPlugin)
