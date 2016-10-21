@@ -1,7 +1,8 @@
-from django.http import HttpResponse, HttpResponseRedirect, Http404
+from django.http import HttpResponse, HttpResponseRedirect, Http404, HttpResponseBadRequest
 from django.conf.urls import patterns, url
 from django.core.exceptions import PermissionDenied
 from django.core.urlresolvers import reverse
+from django.contrib.auth.decorators import login_required
 from common.CLRecipe import CLRecipe
 from dataintegration.core.plugins.base import DIBasePlugin, DIPluginDashboardMixin
 from requests_oauthlib import OAuth1Session
@@ -23,26 +24,29 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
 
     user_api_association_name = "WP username"
 
-    @staticmethod
-    def connect_view(request):
-        return WordPressPlugin().start_authentication(request)
+    @classmethod
+    def connect_view(cls, request):
+        return cls().start_authentication(request)
 
-    @staticmethod
-    def authorize_view(request):
-        return WordPressPlugin().authorize(request)
+    @classmethod
+    def authorize_view(cls, request):
+        return cls().authorize(request)
 
     @classmethod
     def refresh_view(cls, request):
         unit = UnitOffering.objects.get(id=request.GET["unit"])
-        cls().perform_import(request, unit)
-        return HttpResponse("Done")
+        if UnitOfferingMembership.is_admin(request.user, unit):
+            cls().perform_import(request, unit)
+            return HttpResponse("Done")
+        else:
+            raise PermissionDenied
 
     @classmethod
     def get_url_patterns(cls):
         return [
-            url(r'^connect/$', cls.connect_view, name="{}-connect".format(CLRecipe.PLATFORM_WORDPRESS)),
-            url(r'^authorize/$', cls.authorize_view, name="{}-authorize".format(CLRecipe.PLATFORM_WORDPRESS)),
-            url(r'^refresh/$', cls.refresh_view, name="{}-refresh".format(CLRecipe.PLATFORM_WORDPRESS)),
+            url(r'^connect/$', login_required(cls.connect_view), name="{}-connect".format(CLRecipe.PLATFORM_WORDPRESS)),
+            url(r'^authorize/$', login_required(cls.authorize_view), name="{}-authorize".format(CLRecipe.PLATFORM_WORDPRESS)),
+            url(r'^refresh/$', login_required(cls.refresh_view), name="{}-refresh".format(CLRecipe.PLATFORM_WORDPRESS)),
         ]
 
     def __init__(self):
@@ -51,43 +55,41 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
         self.wp_root = os.environ.get("WORDPRESS_ROOT")
 
     def start_authentication(self, request):
-        request_token_url = "{}/oauth1/request".format(self.wp_root)
-        base_authorization_url = "{}/oauth1/authorize".format(self.wp_root)
-        callback_path = reverse("{}-authorize".format(self.platform))
-        callback_uri = "{}://{}{}".format(request.scheme, request.get_host(), callback_path)
 
-        oauth = OAuth1Session(self.client_key, self.client_secret, callback_uri)
-        fetch_response = oauth.fetch_request_token(request_token_url)
+        if "unit" not in request.GET:
+            return HttpResponseBadRequest("Unit not specified")
 
-        temp_token = fetch_response.get('oauth_token')
-        temp_secret = fetch_response.get('oauth_token_secret')
+        unit_id = request.GET["unit"]
 
-        # Save credentials to the session as they will need to be reused in the authorization step
-        request.session["wp_temp_token"] = temp_token
-        request.session["wp_temp_secret"] = temp_secret
-        request.session["wp_temp_unit"] = request.GET["unit"]
+        try:
+            unit = UnitOffering.objects.get(id=unit_id)
+        except UnitOffering.DoesNotExist:
+            raise Http404
 
-        authorization_url = oauth.authorization_url(base_authorization_url, oauth_callback=callback_uri)
+        if UnitOfferingMembership.is_admin(request.user, unit):
+            request_token_url = "{}/oauth1/request".format(self.wp_root)
+            base_authorization_url = "{}/oauth1/authorize".format(self.wp_root)
+            callback_path = reverse("{}-authorize".format(self.platform))
+            callback_uri = "{}://{}{}".format(request.scheme, request.get_host(), callback_path)
 
-        return HttpResponseRedirect(authorization_url)
+            oauth = OAuth1Session(self.client_key, self.client_secret, callback_uri)
+            fetch_response = oauth.fetch_request_token(request_token_url)
+
+            temp_token = fetch_response.get('oauth_token')
+            temp_secret = fetch_response.get('oauth_token_secret')
+
+            # Save credentials to the session as they will need to be reused in the authorization step
+            request.session["wp_temp_token"] = temp_token
+            request.session["wp_temp_secret"] = temp_secret
+            request.session["wp_temp_unit"] = request.GET["unit"]
+
+            authorization_url = oauth.authorization_url(base_authorization_url, oauth_callback=callback_uri)
+
+            return HttpResponseRedirect(authorization_url)
+        else:
+            raise PermissionDenied
 
     def authorize(self, request):
-        access_token_url = "{}/oauth1/access".format(self.wp_root)
-
-        verifier = request.GET['oauth_verifier']
-
-        oauth = OAuth1Session(self.client_key,
-                              client_secret=self.client_secret,
-                              resource_owner_key=request.session["wp_temp_token"],
-                              resource_owner_secret=request.session["wp_temp_secret"],
-                              verifier=verifier)
-        oauth_tokens = oauth.fetch_access_token(access_token_url)
-
-        config_dict = {
-            "access_token_key": oauth_tokens.get('oauth_token'),
-            "access_token_secret": oauth_tokens.get('oauth_token_secret')
-        }
-
         unit_id = request.session["wp_temp_unit"]
 
         try:
@@ -96,12 +98,29 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
             raise Http404
 
         if UnitOfferingMembership.is_admin(request.user, unit):
-            config = PlatformConfig(unit=unit, config=config_dict, platform=self.platform)
-            config.save()
+            access_token_url = "{}/oauth1/access".format(self.wp_root)
+
+            verifier = request.GET['oauth_verifier']
+
+            oauth = OAuth1Session(self.client_key,
+                                  client_secret=self.client_secret,
+                                  resource_owner_key=request.session["wp_temp_token"],
+                                  resource_owner_secret=request.session["wp_temp_secret"],
+                                  verifier=verifier)
+            oauth_tokens = oauth.fetch_access_token(access_token_url)
+
+            config_dict = {
+                "access_token_key": oauth_tokens.get('oauth_token'),
+                "access_token_secret": oauth_tokens.get('oauth_token_secret')
+            }
+
+            pc = PlatformConfig(unit=unit, platform=self.platform, config=config_dict)
+            pc.save()
+
+            return HttpResponseRedirect("/")
+
         else:
             raise PermissionDenied
-
-        return HttpResponseRedirect("/")
 
     def perform_import(self, retrieval_param, unit):
         config = unit.platformconfig_set.get(platform=self.platform).config
