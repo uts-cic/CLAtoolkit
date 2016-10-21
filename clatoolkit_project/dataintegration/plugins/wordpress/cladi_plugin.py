@@ -1,5 +1,6 @@
-from django.http import HttpResponse, HttpResponseRedirect, Http404, HttpResponseBadRequest
-from django.conf.urls import patterns, url
+from django.http import HttpResponse, HttpResponseRedirect, Http404
+from django.shortcuts import render
+from django.conf.urls import url
 from django.core.exceptions import PermissionDenied
 from django.core.urlresolvers import reverse
 from django.contrib.auth.decorators import login_required
@@ -10,10 +11,7 @@ from dataintegration.models import PlatformConfig
 from dataintegration.core.socialmediarecipebuilder import *
 from dataintegration.core.recipepermissions import *
 from dataintegration.core.plugins import registry
-import os
-
-# TODO - make sure user has auth to import
-# TODO - comment code
+from forms import ConnectForm
 
 
 class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
@@ -26,7 +24,49 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
 
     @classmethod
     def connect_view(cls, request):
-        return cls().start_authentication(request)
+        if request.method == "POST":
+            form = ConnectForm(request.POST)
+
+            if form.is_valid():
+                # Get the details the user entered into the form
+                unit_id = form.cleaned_data["unit_id"]
+                wp_root = form.cleaned_data["wp_root"]
+                client_key = form.cleaned_data["client_key"]
+                client_secret = form.cleaned_data["client_secret"]
+
+                unit = UnitOffering.objects.get(id=unit_id)
+
+                if UnitOfferingMembership.is_admin(request.user, unit):
+                    # Save the WP instance details
+                    cls.add_instance(unit, wp_root, client_key, client_secret)
+
+                    # Setup URLs for use in the handshake process
+                    request_token_url = "{}/oauth1/request".format(wp_root)
+                    base_authorization_url = "{}/oauth1/authorize".format(wp_root)
+                    callback_path = reverse("{}-authorize".format(cls.platform))
+                    callback_uri = "{}://{}{}".format(request.scheme, request.get_host(), callback_path)
+
+                    # Start the oauth flow and get temporary credentials
+                    oauth = OAuth1Session(client_key, client_secret, callback_uri)
+                    fetch_response = oauth.fetch_request_token(request_token_url)
+                    temp_token = fetch_response.get('oauth_token')
+                    temp_secret = fetch_response.get('oauth_token_secret')
+
+                    # Save credentials to the session as they will need to be reused in the authorization step
+                    request.session["wp_temp_token"] = temp_token
+                    request.session["wp_temp_secret"] = temp_secret
+                    request.session["wp_temp_unit"] = request.GET["unit"]
+                    request.session["wp_temp_root"] = wp_root
+
+                    # Redirect the user to authorize the toolkit
+                    authorization_url = oauth.authorization_url(base_authorization_url, oauth_callback=callback_uri)
+                    return HttpResponseRedirect(authorization_url)
+
+        else:
+            unit_id = request.GET["unit"]
+            form = ConnectForm()
+
+            return render(request, "wordpress/templates/connect.html", {"form": form, "unit_id":unit_id})
 
     @classmethod
     def authorize_view(cls, request):
@@ -43,6 +83,7 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
 
     @classmethod
     def get_url_patterns(cls):
+        """Returns the URL patterns used by the plugin"""
         return [
             url(r'^connect/$', login_required(cls.connect_view), name="{}-connect".format(CLRecipe.PLATFORM_WORDPRESS)),
             url(r'^authorize/$', login_required(cls.authorize_view), name="{}-authorize".format(CLRecipe.PLATFORM_WORDPRESS)),
@@ -50,47 +91,12 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
         ]
 
     def __init__(self):
-        self.client_key = os.environ.get("WORDPRESS_KEY")
-        self.client_secret = os.environ.get("WORDPRESS_SECRET")
-        self.wp_root = os.environ.get("WORDPRESS_ROOT")
+        pass
 
-    def start_authentication(self, request):
-
-        if "unit" not in request.GET:
-            return HttpResponseBadRequest("Unit not specified")
-
-        unit_id = request.GET["unit"]
-
-        try:
-            unit = UnitOffering.objects.get(id=unit_id)
-        except UnitOffering.DoesNotExist:
-            raise Http404
-
-        if UnitOfferingMembership.is_admin(request.user, unit):
-            request_token_url = "{}/oauth1/request".format(self.wp_root)
-            base_authorization_url = "{}/oauth1/authorize".format(self.wp_root)
-            callback_path = reverse("{}-authorize".format(self.platform))
-            callback_uri = "{}://{}{}".format(request.scheme, request.get_host(), callback_path)
-
-            oauth = OAuth1Session(self.client_key, self.client_secret, callback_uri)
-            fetch_response = oauth.fetch_request_token(request_token_url)
-
-            temp_token = fetch_response.get('oauth_token')
-            temp_secret = fetch_response.get('oauth_token_secret')
-
-            # Save credentials to the session as they will need to be reused in the authorization step
-            request.session["wp_temp_token"] = temp_token
-            request.session["wp_temp_secret"] = temp_secret
-            request.session["wp_temp_unit"] = request.GET["unit"]
-
-            authorization_url = oauth.authorization_url(base_authorization_url, oauth_callback=callback_uri)
-
-            return HttpResponseRedirect(authorization_url)
-        else:
-            raise PermissionDenied
-
-    def authorize(self, request):
+    @classmethod
+    def authorize(cls, request):
         unit_id = request.session["wp_temp_unit"]
+        wp_root = request.session["wp_temp_root"]
 
         try:
             unit = UnitOffering.objects.get(id=unit_id)
@@ -98,71 +104,121 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
             raise Http404
 
         if UnitOfferingMembership.is_admin(request.user, unit):
-            access_token_url = "{}/oauth1/access".format(self.wp_root)
+            access_token_url = "{}/oauth1/access".format(wp_root)
 
             verifier = request.GET['oauth_verifier']
 
-            oauth = OAuth1Session(self.client_key,
-                                  client_secret=self.client_secret,
+            client_key, client_secret = cls.get_client_key(unit, wp_root)
+
+            oauth = OAuth1Session(client_key, client_secret=client_secret,
                                   resource_owner_key=request.session["wp_temp_token"],
-                                  resource_owner_secret=request.session["wp_temp_secret"],
-                                  verifier=verifier)
+                                  resource_owner_secret=request.session["wp_temp_secret"], verifier=verifier)
             oauth_tokens = oauth.fetch_access_token(access_token_url)
 
-            config_dict = {
-                "access_token_key": oauth_tokens.get('oauth_token'),
-                "access_token_secret": oauth_tokens.get('oauth_token_secret')
-            }
-
-            pc = PlatformConfig(unit=unit, platform=self.platform, config=config_dict)
-            pc.save()
+            cls.save_access_token(unit, wp_root, oauth_tokens.get('oauth_token'), oauth_tokens.get('oauth_token_secret'))
 
             return HttpResponseRedirect("/")
 
         else:
             raise PermissionDenied
 
-    def perform_import(self, retrieval_param, unit):
-        config = unit.platformconfig_set.get(platform=self.platform).config
-        oauth = OAuth1Session(client_key=self.client_key,
-                              client_secret=self.client_secret,
-                              resource_owner_key=config["access_token_key"],
-                              resource_owner_secret=config["access_token_secret"])
+    @classmethod
+    def add_instance(cls, unit, wp_root, access_key, access_secret):
+        """Add a connection to the platform config for a unit, overwrites existing entries for a non-unique wp_root"""
+        try:
+            pc = PlatformConfig.objects.get(unit=unit, platform=cls.platform)
+            pc.config[wp_root] = {
+                    "client_key": access_key,
+                    "client_secret": access_secret
+            }
+        # If no existing config exists
+        except PlatformConfig.DoesNotExist:
+            config = {
+                wp_root: {
+                    "client_key": access_key,
+                    "client_secret": access_secret
+                }
+            }
+            pc = PlatformConfig(unit=unit, platform=cls.platform, config=config)
+        pc.save()
 
-        next_page = "{}/wp-json/clatoolkit-wp/v1/posts".format(self.wp_root)
+    @classmethod
+    def get_platform_config(cls, unit):
+        return PlatformConfig.objects.get(unit=unit, platform=cls.platform).config
 
-        while next_page:
-            r = oauth.get(next_page)
-            result = r.json()
+    @classmethod
+    def get_instance_config(cls, unit, wp_root):
+        return PlatformConfig.objects.get(unit=unit, platform=cls.platform).config[wp_root]
 
-            for blog in result["posts"]:
-                self.add_blog_posts(blog, unit)
+    @classmethod
+    def get_client_key(cls, unit, wp_root):
+        config = cls.get_instance_config(unit, wp_root)
 
-            if "next_page" in result:
-                next_page = result["next_page"]
-            else:
-                next_page = False
+        return config["client_key"], config["client_secret"]
 
-    def add_blog_posts(self, blog, unit):
+    @classmethod
+    def save_access_token(cls, unit, wp_root, access_token_key, access_token_secret):
+        """Save access token and secret to an existing entry in the PlatformConfig"""
+        pc = PlatformConfig.objects.get(unit=unit, platform=cls.platform)
+
+        pc.config[wp_root]["access_token_key"] = access_token_key
+        pc.config[wp_root]["access_token_secret"] = access_token_secret
+
+        pc.save()
+
+    @classmethod
+    def get_access_token(cls, unit, wp_root):
+        config = cls.get_instance_config(unit, wp_root)
+
+        return config["access_token_key"], config["access_token_secret"]
+
+    @classmethod
+    def perform_import(cls, retrieval_param, unit):
+        config = cls.get_platform_config(unit)
+
+        # For each WordPress instance connected
+        for instance in config:
+
+            oauth = OAuth1Session(client_key=config[instance]["client_key"],
+                                  client_secret=config[instance]["client_secret"],
+                                  resource_owner_key=config[instance]["access_token_key"],
+                                  resource_owner_secret=config[instance]["access_token_secret"])
+
+            next_page = "{}/wp-json/clatoolkit-wp/v1/posts".format(instance)
+
+            while next_page:
+                r = oauth.get(next_page)
+                result = r.json()
+
+                for blog in result["posts"]:
+                    cls.add_blog_posts(blog, unit)
+
+                if "next_page" in result:
+                    next_page = result["next_page"]
+                else:
+                    next_page = False
+
+    @classmethod
+    def add_blog_posts(cls, blog, unit):
 
         for post in blog["posts"]:
 
             try:
-                user = UserProfile.from_platform_identifier(self.platform, post["author"]["email"]).user
+                user = UserProfile.from_platform_identifier(cls.platform, post["author"]["email"]).user
 
                 insert_post(user=user, post_id=post["guid"], message=post["post_content"],
-                            created_time=post["post_date_gmt"], unit=unit, platform=self.platform, platform_url="")
+                            created_time=post["post_date_gmt"], unit=unit, platform=cls.platform, platform_url="")
 
                 if "comments" in post:
                     for comment in post["comments"]:
                         try:
-                            commenter = UserProfile.from_platform_identifier(self.platform,
+                            commenter = UserProfile.from_platform_identifier(cls.platform,
                                                                              comment["comment_author_email"]).user
 
                             insert_comment(user=commenter, post_id=post["guid"], comment_id=comment["comment_guid"],
                                            comment_message=comment["comment_content"],
                                            comment_created_time=comment["comment_date_gmt"], unit=unit,
-                                           platform=self.platform, platform_url="", parent_user=user)
+                                           platform=cls.platform, platform_url="", parent_user=user)
 
                         except UserProfile.DoesNotExist:
                             # Don't store the comment if the author doesn't exist

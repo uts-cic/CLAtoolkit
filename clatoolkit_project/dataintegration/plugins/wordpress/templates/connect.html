@@ -1,0 +1,14 @@
+<form method="post">
+    {% csrf_token %}
+    {{ form.wp_root.label_tag }}
+    {{ form.wp_root }}
+    <br>
+    {{ form.client_key.label_tag }}
+    {{ form.client_key }}
+    <br>
+    {{ form.client_secret.label_tag }}
+    {{ form.client_secret }}
+    <br>
+    <input type="text" hidden="hidden" name="unit_id" value={{ unit_id }} />
+    <input type="submit" value="Submit" />
+</form>
