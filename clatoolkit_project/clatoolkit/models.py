@@ -262,12 +262,12 @@ class SocialRelationship(models.Model):
     to_external_user = models.CharField(max_length=5000, blank=True, null=True)
     platformid = models.CharField(max_length=5000, blank=True)
     message = models.TextField(blank=True)
-    datetimestamp = models.DateTimeField(blank=True)
+    datetimestamp = models.DateTimeField(null=True)
 
     @classmethod
     def relationship_exists(cls, **kwargs):
         try:
-            cls.objects.get(kwargs)
+            cls.objects.get(**kwargs)
             return True
         except cls.DoesNotExist:
             return False

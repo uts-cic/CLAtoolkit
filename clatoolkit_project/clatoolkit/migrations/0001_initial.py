@@ -115,7 +115,7 @@ class Migration(migrations.Migration):
                 ('to_external_user', models.CharField(max_length=5000, null=True, blank=True)),
                 ('platformid', models.CharField(max_length=5000, blank=True)),
                 ('message', models.TextField(blank=True)),
-                ('datetimestamp', models.DateTimeField(blank=True)),
+                ('datetimestamp', models.DateTimeField(null=True)),
                 ('from_user', models.ForeignKey(to=settings.AUTH_USER_MODEL)),
                 ('to_user', models.ForeignKey(related_name='to_user', to=settings.AUTH_USER_MODEL, null=True)),
             ],

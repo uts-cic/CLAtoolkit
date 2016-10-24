@@ -246,12 +246,12 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
         for user_id in j["friendships"]:
             user_email = j["entities"][user_id]["email"]
             try:
-                user = UserProfile.from_platform_identifier(platform=cls.platform, identifier=user_email)
+                user = UserProfile.from_platform_identifier(platform=cls.platform, identifier=user_email).user
                 for friend_id in j["friendships"][user_id]:
                     friend_user_email = j["entities"][friend_id]["email"]
 
                     try:
-                        friend = UserProfile.from_platform_identifier(cls.platform, friend_user_email)
+                        friend = UserProfile.from_platform_identifier(cls.platform, friend_user_email).user
 
                         insert_relationship(from_user=user, to_user=friend, relationship_type=relationship_type,
                                             unit=unit, platform=cls.platform, platform_group_id=instance,
