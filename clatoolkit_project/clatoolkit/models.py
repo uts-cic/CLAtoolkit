@@ -238,6 +238,7 @@ class LearningRecord(models.Model):
     xapi = JsonField()
     unit = models.ForeignKey(UnitOffering)
     platform = models.CharField(max_length=5000, blank=False)
+    platform_group_id = models.CharField(max_length=100, blank=True)
     verb = models.CharField(max_length=5000, blank=False)
     user = models.ForeignKey(User)
     platformid = models.CharField(max_length=5000, blank=True)
@@ -253,13 +254,23 @@ class LearningRecord(models.Model):
 class SocialRelationship(models.Model):
     unit = models.ForeignKey(UnitOffering)
     platform = models.CharField(max_length=5000, blank=False)
-    verb = models.CharField(max_length=5000, blank=False)
+    platform_group_id = models.CharField(max_length=100, blank=True)
+    type = models.CharField(max_length=100, blank=True)
+    verb = models.CharField(max_length=5000, blank=True)
     from_user = models.ForeignKey(User)
     to_user = models.ForeignKey(User, null=True, related_name="to_user")
     to_external_user = models.CharField(max_length=5000, blank=True, null=True)
     platformid = models.CharField(max_length=5000, blank=True)
-    message = models.TextField(blank=False)
+    message = models.TextField(blank=True)
     datetimestamp = models.DateTimeField(blank=True)
+
+    @classmethod
+    def relationship_exists(cls, **kwargs):
+        try:
+            cls.objects.get(kwargs)
+            return True
+        except cls.DoesNotExist:
+            return False
 
 
 class CachedContent(models.Model):

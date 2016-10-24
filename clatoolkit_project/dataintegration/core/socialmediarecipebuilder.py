@@ -200,12 +200,12 @@ def socialmedia_builder(verb, platform, account_name, account_homepage, object_t
     return statement
 
 
-def insert_post(user, post_id, message, created_time, unit, platform, platform_url, tags=()):
+def insert_post(user, post_id, message, created_time, unit, platform, platform_url, platform_group_id=None, tags=()):
     verb = 'created'
 
     if check_ifnotinlocallrs(unit, platform, post_id, user, verb):
         lrs = LearningRecord(xapi=None, unit=unit, verb=verb, platform=platform, user=user, platformid=post_id,
-                             message=message, datetimestamp=created_time)
+                             message=message, datetimestamp=created_time, platform_group_id=platform_group_id)
         lrs.save()
         for tag in tags:
             if tag[0] == "@":
@@ -419,6 +419,35 @@ def insert_closedopen_object(usr_dict, object_id, object_text, obj_updater_uid, 
                                  datetimestamp=obj_update_time)
             lrs.save()
 
+
+def insert_relationship(from_user, to_user, relationship_type, unit, platform, platform_group_id=None,
+                        directional=True):
+    search_args = {
+        "from_user": from_user,
+        "to_user": to_user,
+        "type": relationship_type,
+        "unit": unit,
+        "platform": platform
+    }
+
+    if platform_group_id:
+        search_args["platform_group_id"] = platform_group_id
+
+    # Check if it exists
+    exists = True if SocialRelationship.relationship_exists(**search_args) else False
+
+    # If the relationship is not direction check if the opposite exists
+    if not directional:
+        search_args["from_user"] = to_user
+        search_args["to_user"] = from_user
+
+        exists = True if SocialRelationship.relationship_exists(**search_args) else False
+
+    # Create the relationship if it doesn't already exist
+    if not exists:
+        sr = SocialRelationship(unit=unit, platform=platform, platform_group_id=platform_group_id,
+                                type=relationship_type, from_user=from_user, to_user=to_user, )
+        sr.save()
 
 
 """def insert_comment(usr_dict, post_id, comment_id, comment_message, comment_from_uid, comment_from_name, comment_created_time,

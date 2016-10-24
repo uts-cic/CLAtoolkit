@@ -184,22 +184,27 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
                                   resource_owner_key=config[instance]["access_token_key"],
                                   resource_owner_secret=config[instance]["access_token_secret"])
 
-            next_page = "{}/wp-json/clatoolkit-wp/v1/posts".format(instance)
-
-            while next_page:
-                r = oauth.get(next_page)
-                result = r.json()
-
-                for blog in result["posts"]:
-                    cls.add_blog_posts(blog, unit)
-
-                if "next_page" in result:
-                    next_page = result["next_page"]
-                else:
-                    next_page = False
+            cls.get_posts(unit, oauth, instance)
+            cls.get_friendships(unit, oauth, instance)
 
     @classmethod
-    def add_blog_posts(cls, blog, unit):
+    def get_posts(cls, unit, oauth, instance):
+        next_page = "{}/wp-json/clatoolkit-wp/v1/posts".format(instance)
+
+        while next_page:
+            r = oauth.get(next_page)
+            result = r.json()
+
+            for blog in result["posts"]:
+                cls.add_blog_posts(blog, unit, instance)
+
+            if "next_page" in result:
+                next_page = result["next_page"]
+            else:
+                next_page = False
+
+    @classmethod
+    def add_blog_posts(cls, blog, unit, instance):
 
         for post in blog["posts"]:
 
@@ -207,7 +212,8 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
                 user = UserProfile.from_platform_identifier(cls.platform, post["author"]["email"]).user
 
                 insert_post(user=user, post_id=post["guid"], message=post["post_content"],
-                            created_time=post["post_date_gmt"], unit=unit, platform=cls.platform, platform_url="")
+                            created_time=post["post_date_gmt"], unit=unit, platform=cls.platform, platform_url="",
+                            platform_group_id=instance)
 
                 if "comments" in post:
                     for comment in post["comments"]:
@@ -226,6 +232,34 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
 
             except UserProfile.DoesNotExist:
                 # Do nothing if the post author doesn't exist
+                pass
+
+    @classmethod
+    def get_friendships(cls, unit, oauth, instance):
+        friendship_endpoint = "{}/wp-json/clatoolkit-wp/v1/friendships".format(instance)
+        relationship_type = "friendship"
+
+        r = oauth.get(friendship_endpoint)
+
+        j = r.json()
+
+        for user_id in j["friendships"]:
+            user_email = j["entities"][user_id]["email"]
+            try:
+                user = UserProfile.from_platform_identifier(platform=cls.platform, identifier=user_email)
+                for friend_id in j["friendships"][user_id]:
+                    friend_user_email = j["entities"][friend_id]["email"]
+
+                    try:
+                        friend = UserProfile.from_platform_identifier(cls.platform, friend_user_email)
+
+                        insert_relationship(from_user=user, to_user=friend, relationship_type=relationship_type,
+                                            unit=unit, platform=cls.platform, platform_group_id=instance,
+                                            directional=False)
+
+                    except UserProfile.DoesNotExist:
+                        pass
+            except UserProfile.DoesNotExist:
                 pass
 
 registry.register(WordPressPlugin)
