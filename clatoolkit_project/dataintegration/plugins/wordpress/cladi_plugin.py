@@ -224,7 +224,7 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
                             insert_comment(user=commenter, post_id=post["guid"], comment_id=comment["comment_guid"],
                                            comment_message=comment["comment_content"],
                                            comment_created_time=comment["comment_date_gmt"], unit=unit,
-                                           platform=cls.platform, platform_url="", parent_user=user)
+                                           platform=cls.platform, platform_group_id=instance, platform_url="", parent_user=user)
 
                         except UserProfile.DoesNotExist:
                             # Don't store the comment if the author doesn't exist

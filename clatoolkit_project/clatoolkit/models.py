@@ -254,7 +254,7 @@ class LearningRecord(models.Model):
 class SocialRelationship(models.Model):
     unit = models.ForeignKey(UnitOffering)
     platform = models.CharField(max_length=5000, blank=False)
-    platform_group_id = models.CharField(max_length=100, blank=True)
+    platform_group_id = models.CharField(max_length=255, blank=True)
     type = models.CharField(max_length=100, blank=True)
     verb = models.CharField(max_length=5000, blank=True)
     from_user = models.ForeignKey(User)
