@@ -3,7 +3,8 @@ from django.contrib.auth.models import User
 from django_pgjson.fields import JsonBField
 from django.core.exceptions import ValidationError
 from django_pgjson.fields import JsonField
-from django.core.exceptions import ObjectDoesNotExist
+from django.core.exceptions import ObjectDoesNotExist, SuspiciousOperation
+from django.http import Http404
 from django.utils import timezone
 import os
 
@@ -223,6 +224,18 @@ class UnitOffering(models.Model):
             platforms.append('trello')
 
         return platforms
+
+    @classmethod
+    def from_get(cls, request):
+        try:
+            unit_id = request.GET["unit"]
+        except:
+            raise SuspiciousOperation("Unit not specified")
+        try:
+            unit = cls.objects.get(id=unit_id)
+            return unit
+        except cls.DoesNotExist:
+            raise Http404
 
 
 class UnitOfferingMembership(models.Model):

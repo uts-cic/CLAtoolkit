@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/1.8/ref/settings/
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 import os
+import inspect
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -132,31 +133,6 @@ USE_L10N = True
 
 USE_TZ = True
 
-
-# Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/1.8/howto/static-files/
-
-# web accessible folder
-STATIC_ROOT = BASE_DIR #os.path.join(BASE_DIR, 'static')
-
-# URL prefix for static files.
-STATIC_URL = '/static/'
-
-STATIC_PATH = os.path.join(BASE_DIR,'static')
-
-# Additional locations of static files
-STATICFILES_DIRS = (
-    # location of your application, should not be public web accessible
-    STATIC_PATH,
-)
-
-# List of finder classes that know how to find static files in
-# various locations.
-STATICFILES_FINDERS = (
-    'django.contrib.staticfiles.finders.FileSystemFinder',
-    'django.contrib.staticfiles.finders.AppDirectoriesFinder',
-)
-
 AUTH_PROFILE_MODULE = "account.userprofile"
 
 GA_TRACKING_ID = ''
@@ -200,3 +176,32 @@ TEMPLATES = [
         },
     },
 ]
+
+# Static files (CSS, JavaScript, Images)
+# https://docs.djangoproject.com/en/1.8/howto/static-files/
+
+# web accessible folder
+STATIC_ROOT = BASE_DIR #os.path.join(BASE_DIR, 'static')
+
+# URL prefix for static files.
+STATIC_URL = '/static/'
+
+STATIC_PATH = os.path.join(BASE_DIR,'static')
+
+# Additional locations of static files
+STATICFILES_DIRS = [
+    # location of your application, should not be public web accessible
+    STATIC_PATH,
+]
+
+# Include the static dir for plugins so they can define their own assets
+for plugin in pluginModules:
+    dir = os.path.join(PLUGIN_PATH, plugin, "static")
+    STATICFILES_DIRS.append((plugin, dir),)
+
+# List of finder classes that know how to find static files in
+# various locations.
+STATICFILES_FINDERS = (
+    'django.contrib.staticfiles.finders.FileSystemFinder',
+    'django.contrib.staticfiles.finders.AppDirectoriesFinder',
+)

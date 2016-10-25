@@ -1,4 +1,4 @@
-from django.http import HttpResponse, HttpResponseRedirect, Http404
+from django.http import HttpResponse, HttpResponseRedirect, Http404, HttpResponseBadRequest
 from django.shortcuts import render
 from django.conf.urls import url
 from django.core.exceptions import PermissionDenied
@@ -23,6 +23,29 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
     user_api_association_name = "WP username"
 
     @classmethod
+    def config_view(cls, request):
+        unit = UnitOffering.from_get(request)
+        if UnitOfferingMembership.is_admin(request.user, unit):
+            instances = cls.get_intances(unit)
+
+            return render(request, "wordpress/templates/config.html", {"unit": unit, "instances": instances})
+        else:
+            raise PermissionDenied
+
+    @classmethod
+    def delete_instance_view(cls, request):
+        unit = UnitOffering.from_get(request)
+        if UnitOfferingMembership.is_admin(request.user, unit):
+            try:
+                instance = request.GET["instance"]
+            except:
+                return HttpResponseBadRequest("Instance not specified")
+            cls.delete_instance(unit, instance)
+            return HttpResponseRedirect(reverse("{}_config".format(cls.platform)) + "?unit={}".format(unit.id))
+        else:
+            raise PermissionDenied
+
+    @classmethod
     def connect_view(cls, request):
         if request.method == "POST":
             form = ConnectForm(request.POST)
@@ -43,7 +66,7 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
                     # Setup URLs for use in the handshake process
                     request_token_url = "{}/oauth1/request".format(wp_root)
                     base_authorization_url = "{}/oauth1/authorize".format(wp_root)
-                    callback_path = reverse("{}-authorize".format(cls.platform))
+                    callback_path = reverse("{}_authorize".format(cls.platform))
                     callback_uri = "{}://{}{}".format(request.scheme, request.get_host(), callback_path)
 
                     # Start the oauth flow and get temporary credentials
@@ -63,10 +86,10 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
                     return HttpResponseRedirect(authorization_url)
 
         else:
-            unit_id = request.GET["unit"]
+            unit = UnitOffering.from_get(request)
             form = ConnectForm()
 
-            return render(request, "wordpress/templates/connect.html", {"form": form, "unit_id":unit_id})
+            return render(request, "wordpress/templates/connect.html", {"form": form, "unit": unit})
 
     @classmethod
     def authorize_view(cls, request):
@@ -85,9 +108,11 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
     def get_url_patterns(cls):
         """Returns the URL patterns used by the plugin"""
         return [
-            url(r'^connect/$', login_required(cls.connect_view), name="{}-connect".format(CLRecipe.PLATFORM_WORDPRESS)),
-            url(r'^authorize/$', login_required(cls.authorize_view), name="{}-authorize".format(CLRecipe.PLATFORM_WORDPRESS)),
-            url(r'^refresh/$', login_required(cls.refresh_view), name="{}-refresh".format(CLRecipe.PLATFORM_WORDPRESS)),
+            url(r'^config/$', login_required(cls.config_view), name="{}_config".format(CLRecipe.PLATFORM_WORDPRESS)),
+            url(r'^connect/$', login_required(cls.connect_view), name="{}_connect".format(CLRecipe.PLATFORM_WORDPRESS)),
+            url(r'^delete/$', login_required(cls.delete_instance_view), name="{}_delete_instance".format(CLRecipe.PLATFORM_WORDPRESS)),
+            url(r'^authorize/$', login_required(cls.authorize_view), name="{}_authorize".format(CLRecipe.PLATFORM_WORDPRESS)),
+            url(r'^refresh/$', login_required(cls.refresh_view), name="{}_refresh".format(CLRecipe.PLATFORM_WORDPRESS)),
         ]
 
     def __init__(self):
@@ -117,7 +142,7 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
 
             cls.save_access_token(unit, wp_root, oauth_tokens.get('oauth_token'), oauth_tokens.get('oauth_token_secret'))
 
-            return HttpResponseRedirect("/")
+            return HttpResponseRedirect(reverse("{}_config".format(cls.platform)) + "?unit={}".format(unit.id))
 
         else:
             raise PermissionDenied
@@ -143,12 +168,28 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
         pc.save()
 
     @classmethod
+    def delete_instance(cls, unit, wp_root):
+        try:
+            pc = PlatformConfig.objects.get(unit=unit, platform=cls.platform)
+            pc.config.pop(wp_root)
+            pc.save()
+        # If no existing config exists
+        except PlatformConfig.DoesNotExist:
+            pass
+
+    @classmethod
     def get_platform_config(cls, unit):
         return PlatformConfig.objects.get(unit=unit, platform=cls.platform).config
 
     @classmethod
     def get_instance_config(cls, unit, wp_root):
         return PlatformConfig.objects.get(unit=unit, platform=cls.platform).config[wp_root]
+
+    @classmethod
+    def get_intances(cls, unit):
+        config = cls.get_platform_config(unit)
+        sites = [s for s in config]
+        return sites
 
     @classmethod
     def get_client_key(cls, unit, wp_root):
