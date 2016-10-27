@@ -192,6 +192,17 @@ class WordPressPlugin(DIBasePlugin, DIPluginDashboardMixin):
         return sites
 
     @classmethod
+    def get_groups(cls, unit):
+        instances = cls.get_intances(unit)
+        result = []
+        for instance in instances:
+            result.append({
+                "label": instance,
+                "a": instance
+            })
+        return result
+
+    @classmethod
     def get_client_key(cls, unit, wp_root):
         config = cls.get_instance_config(unit, wp_root)
 
