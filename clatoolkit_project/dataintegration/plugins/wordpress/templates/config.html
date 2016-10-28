@@ -31,7 +31,7 @@
                         </div>
                     {% endfor %}
                     <div class="list-group-item">
-                        <button class="btn btn-default btn-primary" type="button">Done</button>
+                        <a href="{% url "update_offering" unit.id %}" class="btn btn-default btn-primary" type="button">Done</a>
                         <a href="{% url "WordPress_connect" %}?unit={{ unit.id }}" class="pull-right btn btn-default btn-success">Connect new instance</a>
                     </div>
                 </div>
