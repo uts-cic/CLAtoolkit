@@ -62,7 +62,8 @@ class UserProfile(models.Model):
             'youtube':self.google_account_name,
             'blog':self.blog_id,
             'github':self.github_account_name,
-            'trello':self.trello_account_name
+            'trello':self.trello_account_name,
+            'wordpress':self.user.email
         }
 
         return platform_map[platform.lower()]

@@ -105,6 +105,25 @@ def refreshtrello(request):
 
 
 ##############################################
+# WP Data Extraction
+##############################################
+def refreshwordpress(request):
+    html_response = HttpResponse()
+    course_id = request.GET.get('course_id')
+    unit = None
+    try:
+        unit = UnitOffering.objects.get(id=course_id)
+    except UnitOffering.DoesNotExist:
+        raise Http404
+
+    wordpress_plugin = settings.DATAINTEGRATION_PLUGINS[xapi_settings.PLATFORM_WORDPRESS]
+    wordpress_plugin.perform_import(None, unit)
+    post_smimport(unit, xapi_settings.PLATFORM_WORDPRESS)
+
+    return render(request, 'dataintegration/wordpressresult.html')
+
+
+##############################################
 # GitHub Data Extraction
 ##############################################
 def refreshgithub(request):
